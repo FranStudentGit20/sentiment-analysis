@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Sentiment;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Sentiment\Analyzer;
 
 class SentimentController extends Controller
@@ -11,21 +13,50 @@ class SentimentController extends Controller
     public function analyze(Request $request)
     {
         $text = $request->input('text');
+    $analyzer = new Analyzer();
 
-        // Use the Sentiment Analyzer
-        $analyzer = new Analyzer();
-        $result = $analyzer->getSentiment($text);
+    // Analyze word-level sentiment and generate highlighted text
+    $words = explode(' ', $text);
+    $highlightedText = '';
+    $positiveCount = 0;
+    $negativeCount = 0;
+    $neutralCount = 0;
 
-        // Determine sentiment
-        $sentiment = $this->mapSentiment($result['compound']);
+    foreach ($words as $word) {
+        $wordResult = $analyzer->getSentiment($word);
+        if ($wordResult['compound'] > 0) {
+            $highlightedText .= '<span class="positive">' . htmlspecialchars($word) . '</span> ';
+            $positiveCount++;
+        } elseif ($wordResult['compound'] < 0) {
+            $highlightedText .= '<span class="negative">' . htmlspecialchars($word) . '</span> ';
+            $negativeCount++;
+        } else {
+            $highlightedText .= '<span class="neutral">' . htmlspecialchars($word) . '</span> ';
+            $neutralCount++;
+        }
+    }
 
-        // Save to the database
-        $record = Sentiment::create([
-            'text' => $text,
-            'sentiment' => $sentiment,
-        ]);
+    // Determine overall sentiment
+    if ($positiveCount > $negativeCount) {
+        $sentiment = 'positive';
+    } elseif ($negativeCount > $positiveCount) {
+        $sentiment = 'negative';
+    } else {
+        $sentiment = 'neutral';
+    }
 
-        return response()->json(['sentiment' => $sentiment, 'record' => $record]);
+    // Remove trailing space
+    $highlightedText = trim($highlightedText);
+
+    // Return results to the view
+    return view('welcome', [
+        'text' => $text,
+        'highlightedText' => $highlightedText,
+        'positiveCount' => $positiveCount,
+        'negativeCount' => $negativeCount,
+        'neutralCount' => $neutralCount,
+        'sentiment' => $sentiment, // Pass $sentiment to the view
+    ]);
     }
 
     private function mapSentiment($score)
@@ -37,26 +68,4 @@ class SentimentController extends Controller
         }
         return 'neutral';
     }
-
-    public function store(Request $request)
-{
-    // Validate incoming data
-    $validated = $request->validate([
-        'text' => 'required|string',
-        'sentiment' => 'required|string',
-    ]);
-
-    // Truncate the text to fit the database column
-    $validated['text'] = Str::limit($validated['text'], 255);
-
-    // Insert into the database
-    \DB::table('sentiments')->insert([
-        'text' => $validated['text'],
-        'sentiment' => $validated['sentiment'],
-        'created_at' => now(),
-        'updated_at' => now(),
-    ]);
-
-    return response()->json(['message' => 'Data saved successfully!']);
-}
 }
